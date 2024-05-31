@@ -13,23 +13,23 @@ type Item struct {
 }
 
 type Setting struct {
-	Metadata map[string]interface{}
-	Title    string
-	Layout   string
-	Url      string
-	Date     time.Time
-	DstDir   string
-	SrcDir   string
-	Exclude  string
-	Toc      []Item
+	Meta    map[string]interface{}
+	Title   string
+	Layout  string
+	Url     string
+	Date    time.Time
+	DstDir  string
+	SrcDir  string
+	Exclude string
+	Toc     []Item
 }
 
 func (setting *Setting) Root() string {
-	if _, yes := setting.Metadata["root"]; !yes {
+	if _, yes := setting.Meta["root"]; !yes {
 		value, _ := os.Getwd()
-		setting.Metadata["root"] = value
+		setting.Meta["root"] = value
 	}
-	return setting.Metadata["root"].(string)
+	return setting.Meta["root"].(string)
 }
 
 type Site struct {
@@ -46,12 +46,12 @@ type Page struct {
 	Layout   string
 	Content  string
 	Type     string
-	Metadata map[string]interface{}
+	Meta     map[string]interface{}
 	Children []Page
 }
 
 func (page *Page) Sort() string {
-	if value, has := page.Metadata["sort"]; has {
+	if value, has := page.Meta["sort"]; has {
 		v, y := value.(string)
 		if y {
 			if page.Type == "index" {

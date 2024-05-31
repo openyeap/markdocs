@@ -1,9 +1,8 @@
 package main
 
 import (
-	"os"
+	"net/url"
 	"path/filepath"
-	"strings"
 )
 
 type X struct {
@@ -12,7 +11,7 @@ type X struct {
 }
 
 func FileExtesion(path string) (string, int) {
-	for i := len(path) - 1; i >= 0 && !os.IsPathSeparator(path[i]); i-- {
+	for i := len(path) - 1; i >= 0 && path[i] != '/'; i-- {
 		if path[i] == '.' {
 			return path[i:], i
 		}
@@ -23,29 +22,30 @@ func Rel(site Site, elem string) string {
 
 	rel, err := filepath.Rel(site.SrcDir, elem)
 	if err != nil {
-		return strings.ReplaceAll(elem, "\\", "/")
+		return filepath.ToSlash(elem)
 	}
-	return strings.ReplaceAll(rel, "\\", "/")
+	return filepath.ToSlash(rel)
 }
 func (x X) AbsRel(elem string) string {
-
-	root := filepath.Join(x.Site.SrcDir, x.Page.Path)
-	if x.Page.Type != "index" {
-		root = filepath.Dir(root)
-	}
+	root := filepath.Dir(filepath.Join(x.Site.SrcDir, x.Page.Path))
 	target := filepath.Join(x.Site.SrcDir, elem)
 	rel, err := filepath.Rel(root, target)
 	if err != nil {
 		return elem
 	}
-	return strings.ReplaceAll(rel, "\\", "/")
+	return filepath.ToSlash(rel)
 }
 func (x X) Cwd() string {
 	root := filepath.Join(x.Site.Root(), x.Site.SrcDir)
 	target := filepath.Join(x.Site.Root(), x.Page.Path)
 	rel, err := filepath.Rel(root, target)
 	if err != nil {
-		return strings.ReplaceAll(x.Page.Path, "\\", "/")
+		return filepath.ToSlash(x.Page.Path)
 	}
-	return strings.ReplaceAll(rel, "\\", "/")
+	return filepath.ToSlash(rel)
+}
+func (x X) Encode(rawURL string) string {
+
+	return url.PathEscape(rawURL)
+
 }

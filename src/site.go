@@ -98,11 +98,11 @@ func (site *Site) gen(pages []Page) {
 			data["Content"] = page.Content
 			data["Title"] = page.Title
 			data["Date"] = page.Date
-			data["Meta"] = page.Metadata
+			data["Meta"] = page.Meta
 			data["UrlPath"] = X{Site: *site, Page: page}
 			data["Site"] = convertSite(site)
 			err = site.Template.ExecuteTemplate(destination, page.Layout+".html", data)
-			if value, has := page.Metadata["cp"]; has {
+			if value, has := page.Meta["cp"]; has {
 				v, y := value.(string)
 				if y {
 					copy(dst, filepath.Join(site.DstDir, v))
@@ -114,14 +114,15 @@ func (site *Site) gen(pages []Page) {
 				continue
 			}
 		case "index":
-			_, err := os.Stat(dst)
+			dir := filepath.Dir(dst)
+			_, err := os.Stat(dir)
 			if err != nil {
-				err = os.MkdirAll(dst, os.ModeDir)
+				err = os.MkdirAll(dir, os.ModeDir)
 				if err != nil {
 					continue
 				}
 			}
-			destination, err := os.Create(filepath.Join(dst, "index.html"))
+			destination, err := os.Create(dst)
 			if err != nil {
 				continue
 			}
@@ -130,7 +131,7 @@ func (site *Site) gen(pages []Page) {
 			data["Content"] = page.Content
 			data["Title"] = page.Title
 			data["Date"] = page.Date
-			data["Meta"] = page.Metadata
+			data["Meta"] = page.Meta
 			data["UrlPath"] = X{Site: *site, Page: page}
 			data["Site"] = convertSite(site)
 			err = site.Template.ExecuteTemplate(destination, page.Layout+".html", data)
@@ -154,7 +155,7 @@ func convertSite(site *Site) map[string]interface{} {
 	data["Date"] = site.Date
 	data["Manifest"] = site.Manifest
 	data["Toc"] = site.Toc
-	data["Meta"] = site.Metadata
+	data["Meta"] = site.Meta
 	return data
 }
 
@@ -185,11 +186,11 @@ func (site *Site) Server() {
 			}
 		}
 	}()
-	err = watcher.Add(filepath.Join(site.Root(), "layout"))
+	err = watcher.Add(filepath.Join(site.Root(), site.Layout))
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = watcher.Add(filepath.Join(site.Root(), "layout", "partials"))
+	err = watcher.Add(filepath.Join(site.Root(), site.Layout, "partials"))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -214,20 +215,36 @@ func (site *Site) Server() {
 }
 func scanSite(path string) Site {
 
-	var site Site
+	site := Site{}
 	file, err := os.Open(path)
 	if err != nil {
-		return site
+		log.Println("json read", err.Error())
+		site.Setting = Setting{
+			Title:  "Untitled",
+			DstDir: "target", SrcDir: "docs", Layout: "layout",
+		}
+	} else {
+		defer file.Close()
+		data, err := io.ReadAll(file)
+		if err != nil {
+			log.Println("json read", err.Error())
+			site.Setting = Setting{
+				Title:  "Untitled",
+				DstDir: "target", SrcDir: "docs", Layout: "layout",
+			}
+		} else {
+			err = json.Unmarshal([]byte(data), &site.Setting)
+			if err != nil {
+				log.Println("json error", err.Error())
+				site.Setting = Setting{
+					Title:  "Untitled",
+					DstDir: "target", SrcDir: "docs", Layout: "layout",
+				}
+			}
+		}
 	}
-	defer file.Close()
-
-	data, err := io.ReadAll(file)
-	if err != nil {
-		return site
-	}
-	json.Unmarshal([]byte(data), &site.Setting)
-	if site.Metadata == nil {
-		site.Metadata = make(map[string]interface{})
+	if site.Meta == nil {
+		site.Meta = make(map[string]interface{})
 	}
 	site.DstDir, _ = filepath.Abs(filepath.Join(site.Root(), site.DstDir))
 	site.SrcDir, _ = filepath.Abs(filepath.Join(site.Root(), site.SrcDir))
@@ -255,14 +272,25 @@ func walkSrcDir(site Site, dir string) []Page {
 		//如果是目录
 		if d.IsDir() {
 			page := Page{
-				Title:    d.Name(),
-				Date:     file.ModTime(),
-				Path:     relPath,
-				Layout:   "default",
-				Type:     "index",
-				Metadata: make(map[string]interface{}),
+				Title:  d.Name(),
+				Date:   file.ModTime(),
+				Path:   relPath + "/index.html",
+				Layout: "default",
+				Type:   "index",
+				Meta:   make(map[string]interface{}),
 			}
-			page.Children = walkSrcDir(site, relPath)
+			page.Children = []Page{}
+			for _, v := range walkSrcDir(site, relPath) {
+				if v.Type == "index" {
+					page.Content = v.Content
+					page.Date = v.Date
+					page.Layout = v.Layout
+					page.Title = v.Title
+					page.Meta = v.Meta
+				} else {
+					page.Children = append(page.Children, v)
+				}
+			}
 			pages = append(pages, page)
 			continue
 		}
@@ -281,30 +309,33 @@ func walkSrcDir(site Site, dir string) []Page {
 			if err != nil {
 				continue
 			}
+			name := d.Name()[0 : len(d.Name())-len(ext)]
 
 			page := Page{
-				Title:    d.Name()[0 : len(d.Name())-len(ext)],
-				Date:     file.ModTime(),
-				Path:     relPath[0:i] + ".html",
-				Layout:   "default",
-				Type:     "markdown",
-				Metadata: make(map[string]interface{}),
+				Title:  name,
+				Date:   file.ModTime(),
+				Path:   relPath[0:i] + ".html",
+				Layout: "default",
+				Type:   "markdown",
+				Meta:   make(map[string]interface{}),
 			}
-
+			if name == "index" {
+				page.Type = "index"
+			}
 			if strings.HasPrefix(content, "---") {
 				items := strings.Split(content, "---")
-				err = yaml.Unmarshal([]byte(items[1]), &page.Metadata)
+				err = yaml.Unmarshal([]byte(items[1]), &page.Meta)
 				if err != nil {
 					log.Println(absPath, err.Error())
 					continue
 				}
-				if value, has := page.Metadata["title"]; has {
+				if value, has := page.Meta["title"]; has {
 					page.Title = value.(string)
 				}
-				if value, has := page.Metadata["layout"]; has {
+				if value, has := page.Meta["layout"]; has {
 					page.Layout = value.(string)
 				}
-				if value, has := page.Metadata["date"]; has {
+				if value, has := page.Meta["date"]; has {
 					input := value.(string)
 					date, err := parseTime(input)
 					if err == nil {
@@ -321,12 +352,12 @@ func walkSrcDir(site Site, dir string) []Page {
 
 		} else {
 			page := Page{
-				Title:    d.Name()[0 : len(d.Name())-len(ext)],
-				Date:     file.ModTime(),
-				Path:     relPath,
-				Layout:   "default",
-				Type:     "file",
-				Metadata: make(map[string]interface{}),
+				Title:  d.Name()[0 : len(d.Name())-len(ext)],
+				Date:   file.ModTime(),
+				Path:   relPath,
+				Layout: "default",
+				Type:   "file",
+				Meta:   make(map[string]interface{}),
 			}
 			pages = append(pages, page)
 		}
@@ -359,13 +390,13 @@ func (site *Site) loadLayout() error {
 	matched := append(matchedLayout, matchedPartials...)
 	temp := template.Must(template.ParseFiles(matched...))
 	site.Template = temp
-	err = filepath.WalkDir(filepath.Join(site.Root(), "layout"), func(path string, d os.DirEntry, err error) error {
+	err = filepath.WalkDir(filepath.Join(site.Root(), site.Layout), func(path string, d os.DirEntry, err error) error {
 
 		if !d.IsDir() {
 			if strings.HasSuffix(path, ".html") {
 				return nil
 			}
-			rel_path, _ := filepath.Rel(filepath.Join(site.Root(), "layout"), path)
+			rel_path, _ := filepath.Rel(filepath.Join(site.Root(), site.Layout), path)
 			copy(path, filepath.Join(site.DstDir, rel_path))
 		}
 		return nil
